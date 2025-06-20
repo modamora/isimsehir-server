@@ -1,78 +1,79 @@
 const express = require("express");
 const http = require("http");
-const { Server } = require("socket.io");
-const cors = require("cors");
+const socketIO = require("socket.io");
 
 const app = express();
-app.use(cors());
-
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
+const io = socketIO(server);
 
+// Oyuncuları ve cevapları saklayacağımız yapılar
 let oyuncular = [];
-let hazirOyuncular = [];
+let cevaplar = {}; // { isim: { cevaplar: {}, puan: 0 } }
 
+// ✅ Oyuncu bağlanınca
 io.on("connection", (socket) => {
-  console.log("🔌 Yeni bağlantı:", socket.id);
+    console.log("✅ Yeni bağlantı:", socket.id);
 
-  // ✅ Yeni oyuncu geldiğinde
-  socket.on("yeniOyuncu", (isim) => {
-    console.log("🧑 Yeni Oyuncu:", isim);
-    socket.data.isim = isim;
-    oyuncular.push({ id: socket.id, isim });
+    // Oyuncu adını al
+    socket.on("yeniOyuncu", (isim) => {
+        console.log("🧑 Yeni oyuncu:", isim);
+        oyuncular.push({ id: socket.id, isim });
+    });
 
-    socket.emit("mesaj", `Hoşgeldin ${isim}, keyifli oyunlar!`);
-    socket.broadcast.emit("mesaj", `${isim} oyuna katıldı`);
+    // Cevap geldiğinde
+    socket.on("cevapGonder", (data) => {
+        try {
+            const oyuncu = oyuncular.find((o) => o.id === socket.id);
+            if (!oyuncu) return;
 
-    // Eğer 2 veya daha fazla oyuncu varsa başlat sinyali gönder
-    if (oyuncular.length >= 2) {
-      io.emit("oyunaBasla"); // << BUNU EKLEDİK
-      console.log("🟢 Oyuna başla mesajı gönderildi!");
-    }
-  });
+            const isim = oyuncu.isim;
+            const cevaplarJson = data.cevaplar;
 
-  // ✅ Oyuncular hazır dediğinde
-  socket.on("hazir", () => {
-    if (!hazirOyuncular.includes(socket.id)) {
-      hazirOyuncular.push(socket.id);
-    }
+            const cevapMap = {};
+            for (const kategori in cevaplarJson) {
+                cevapMap[kategori] = cevaplarJson[kategori];
+            }
 
-    console.log(`✅ Hazır Oyuncular: ${hazirOyuncular.length}/${oyuncular.length}`);
+            // Basit puan hesapla (gelişmişi client tarafında yapılmış zaten)
+            const puan = Object.values(cevapMap).filter((s) => s.trim().length > 0).length * 10;
 
-    if (hazirOyuncular.length === oyuncular.length && oyuncular.length > 0) {
-      const harfler = ['A','B','C','Ç','D','E','F','G','H','I','İ','J','K','L','M','N','O','Ö','P','R','S','Ş','T','U','Ü','V','Y','Z'];
-      const secilenHarf = harfler[Math.floor(Math.random() * harfler.length)];
-      console.log("📤 Harf gönderildi:", secilenHarf);
+            cevaplar[isim] = { cevaplar: cevapMap, puan };
 
-      io.emit("harf", secilenHarf);
-      hazirOyuncular = []; // yeni tur için sıfırla
-    }
-  });
+            console.log(`📩 ${isim} cevap verdi. Puan: ${puan}`);
+        } catch (err) {
+            console.error("❌ cevapGonder hatası:", err);
+        }
+    });
 
-  // ✅ Oyuncular cevap gönderdiğinde
-  socket.on("cevaplar", (cevaplar) => {
-    console.log(`📥 ${socket.data.isim}'dan cevaplar geldi:`, cevaplar);
-    socket.broadcast.emit("rakipCevap", cevaplar);
-  });
+    // İstemci puanları görmek istiyor
+    socket.on("puanIstegi", () => {
+        const liste = [];
 
-  // ✅ Oyuncu çıkarsa temizle
-  socket.on("disconnect", () => {
-    const oyuncu = oyuncular.find(o => o.id === socket.id);
-    if (oyuncu) {
-      console.log("❌ Oyuncu ayrıldı:", oyuncu.isim);
-      oyuncular = oyuncular.filter(o => o.id !== socket.id);
-      hazirOyuncular = hazirOyuncular.filter(id => id !== socket.id);
-      socket.broadcast.emit("mesaj", `${oyuncu.isim} oyundan ayrıldı`);
-    }
-  });
+        for (const isim in cevaplar) {
+            liste.push({
+                isim: isim,
+                puan: cevaplar[isim].puan,
+            });
+        }
+
+        // 👥 Her oyuncuya aynı puanlar gönder
+        socket.emit("rakipPuanlari", { oyuncular: liste });
+    });
+
+    // Oyuncu ayrılırsa listeden çıkar
+    socket.on("disconnect", () => {
+        console.log("❌ Oyuncu ayrıldı:", socket.id);
+        oyuncular = oyuncular.filter((o) => o.id !== socket.id);
+        for (const isim in cevaplar) {
+            if (oyuncular.find((o) => o.isim === isim) === undefined) {
+                delete cevaplar[isim];
+            }
+        }
+    });
 });
 
-const PORT = process.env.PORT || 3000;
+// Sunucuyu başlat
+const PORT = 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Sunucu çalışıyor: http://localhost:${PORT}`);
+    console.log(`🚀 Sunucu çalışıyor: http://localhost:${PORT}`);
 });
