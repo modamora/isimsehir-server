@@ -1,5 +1,3 @@
-// ✅ server.js dosyası (Render veya lokal sunucu icin hazır)
-
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -18,7 +16,7 @@ const io = new Server(server, {
 
 let oyuncular = [];
 let hazirOyuncular = [];
-let cevaplarListesi = {}; // Cevaplar socket.id bazlı tutulur
+let cevaplarListesi = {}; // socket.id -> { isim, cevaplar }
 
 io.on("connection", (socket) => {
   console.log("🔌 Yeni bağlantı:", socket.id);
@@ -31,7 +29,6 @@ io.on("connection", (socket) => {
     socket.emit("mesaj", `Hoşgeldin ${isim}, keyifli oyunlar!`);
     socket.broadcast.emit("mesaj", `${isim} oyuna katıldı`);
 
-    // ✔️ 2 oyuncu varsa oyuna başla sinyali gönder
     if (oyuncular.length >= 2) {
       io.emit("oyunaBasla");
       console.log("🟢 Oyuna başla mesajı gönderildi!");
@@ -46,7 +43,7 @@ io.on("connection", (socket) => {
     console.log(`✅ Hazır Oyuncular: ${hazirOyuncular.length}/${oyuncular.length}`);
 
     if (hazirOyuncular.length === oyuncular.length && oyuncular.length > 0) {
-      const harfler = [..."ABCÇDEFGHIİJKLMNOÖPRSŞuÜVYZ"];
+      const harfler = [..."ABCÇDEFGHIİJKLMNOÖPRSŞTUÜVYZ"];
       const secilenHarf = harfler[Math.floor(Math.random() * harfler.length)];
       io.emit("harf", secilenHarf);
       hazirOyuncular = [];
@@ -60,7 +57,6 @@ io.on("connection", (socket) => {
       cevaplar: veri.cevaplar
     };
 
-    // ✔️ İki oyuncudan da cevap geldiyse karşılaştır ve puanla
     if (Object.keys(cevaplarListesi).length === 2) {
       const ids = Object.keys(cevaplarListesi);
       const [id1, id2] = ids;
@@ -71,30 +67,49 @@ io.on("connection", (socket) => {
       const puanlar1 = {};
       const puanlar2 = {};
 
+      let toplam1 = 0;
+      let toplam2 = 0;
+
       kategoriler.forEach((kat) => {
         const c1 = (oyuncu1.cevaplar[kat] || "").toLowerCase().trim();
         const c2 = (oyuncu2.cevaplar[kat] || "").toLowerCase().trim();
-        const ayni = c1 === c2 && c1 !== "";
+        const ayni = c1 !== "" && c1 === c2;
 
-        puanlar1[kat] = c1 === "" ? 0 : ayni ? 5 : 10;
-        puanlar2[kat] = c2 === "" ? 0 : ayni ? 5 : 10;
+        const p1 = c1 === "" ? 0 : ayni ? 5 : 10;
+        const p2 = c2 === "" ? 0 : ayni ? 5 : 10;
+
+        puanlar1[kat] = p1;
+        puanlar2[kat] = p2;
+
+        toplam1 += p1;
+        toplam2 += p2;
       });
 
-      // ✔️ Oyuncu 1'e veri gönder
+      // ✅ Oyuncu 1’e kendi ve rakibin cevaplarını gönder
       io.to(id1).emit("puanSonucu", {
         benim: oyuncu1.cevaplar,
-        rakip: { isim: oyuncu2.isim, cevaplar: oyuncu2.cevaplar },
-        puanlar: puanlar1
+        rakip: {
+          isim: oyuncu2.isim,
+          cevaplar: oyuncu2.cevaplar
+        },
+        puanlar: puanlar1,
+        toplam: toplam1,
+        rakipToplam: toplam2
       });
 
-      // ✔️ Oyuncu 2'ye veri gönder
+      // ✅ Oyuncu 2’ye kendi ve rakibin cevaplarını gönder
       io.to(id2).emit("puanSonucu", {
         benim: oyuncu2.cevaplar,
-        rakip: { isim: oyuncu1.isim, cevaplar: oyuncu1.cevaplar },
-        puanlar: puanlar2
+        rakip: {
+          isim: oyuncu1.isim,
+          cevaplar: oyuncu1.cevaplar
+        },
+        puanlar: puanlar2,
+        toplam: toplam2,
+        rakipToplam: toplam1
       });
 
-      // temizle
+      // 🔄 Temizle
       cevaplarListesi = {};
     }
   });
