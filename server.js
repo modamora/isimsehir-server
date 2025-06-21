@@ -49,9 +49,10 @@ io.on("connection", (socket) => {
   });
 
   // ✅ Cevaplar alındı
-  socket.on("cevaplar", (cevaplar) => {
-  console.log(`📥 ${socket.data.isim}'dan cevaplar geldi:`, cevaplar);
-  io.emit("rakipCevap", cevaplar); //
+  socket.on("cevaplar", (veri) => {
+    // JSON formatında: { isim: "Oğuzhan", cevaplar: {isim: "Ali", sehir: "Ankara", ...} }
+    const { isim, cevaplar } = veri;
+    console.log(`📨 Cevap geldi: ${isim}`, cevaplar);
 
     // Tüm diğer oyunculara gönder
     socket.broadcast.emit("rakipCevap", {
